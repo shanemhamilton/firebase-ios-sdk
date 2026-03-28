@@ -37,17 +37,20 @@ struct FunctionsContextProvider: Sendable {
   }
 
   func context(options: HTTPSCallableOptions?) async throws -> FunctionsContext {
-    async let authToken = auth?.getToken(forcingRefresh: false)
-    async let appCheckToken = getAppCheckToken(options: options)
-    async let limitedUseAppCheckToken = getLimitedUseAppCheckToken(options: options)
+    // PATCHED: Replace `async let` with explicit `Task` to avoid Swift 6.3
+    // compiler regression (swiftlang/swift#87481) that generates incorrect
+    // LIFO deallocation ordering for async-let stack frames, causing
+    // swift_task_dealloc crashes in Release builds on physical devices.
+    // See: firebase/firebase-ios-sdk#15974, PR #15991
+    let authTokenTask = Task { try await auth?.getToken(forcingRefresh: false) }
+    let appCheckTokenTask = Task { await getAppCheckToken(options: options) }
+    let limitedUseAppCheckTokenTask = Task { await getLimitedUseAppCheckToken(options: options) }
 
-    // Only `authToken` is throwing, but the formatter script removes the `try`
-    // from `try authToken` and puts it in front of the initializer call.
-    return try await FunctionsContext(
-      authToken: authToken,
+    return try FunctionsContext(
+      authToken: await authTokenTask.value,
       fcmToken: messaging?.fcmToken,
-      appCheckToken: appCheckToken,
-      limitedUseAppCheckToken: limitedUseAppCheckToken
+      appCheckToken: await appCheckTokenTask.value,
+      limitedUseAppCheckToken: await limitedUseAppCheckTokenTask.value
     )
   }
 

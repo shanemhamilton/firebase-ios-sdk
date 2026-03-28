@@ -64,10 +64,14 @@ final class AuthBackend: AuthBackendProtocol {
                       httpMethod: String,
                       contentType: String,
                       requestConfiguration: AuthRequestConfiguration) async -> URLRequest {
-    // Kick off tasks for the async header values.
-    async let heartbeatsHeaderValue = requestConfiguration.heartbeatLogger?.asyncHeaderValue()
-    async let appCheckTokenHeaderValue = requestConfiguration.appCheck?
-      .getToken(forcingRefresh: false)
+    // PATCHED: Replace `async let` with explicit `Task` to avoid Swift 6.3
+    // compiler regression (swiftlang/swift#87481). See firebase/firebase-ios-sdk#15974
+    let heartbeatsHeaderTask = Task {
+      await requestConfiguration.heartbeatLogger?.asyncHeaderValue()
+    }
+    let appCheckTokenHeaderTask = Task {
+      await requestConfiguration.appCheck?.getToken(forcingRefresh: false)
+    }
 
     var request = URLRequest(url: url)
     request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -86,8 +90,8 @@ final class AuthBackend: AuthBackendProtocol {
       request.setValue(languageCode, forHTTPHeaderField: "X-Firebase-Locale")
     }
     // Wait for the async header values.
-    await request.setValue(heartbeatsHeaderValue, forHTTPHeaderField: "X-Firebase-Client")
-    if let tokenResult = await appCheckTokenHeaderValue {
+    await request.setValue(heartbeatsHeaderTask.value, forHTTPHeaderField: "X-Firebase-Client")
+    if let tokenResult = await appCheckTokenHeaderTask.value {
       if let error = tokenResult.error {
         AuthLog.logWarning(code: "I-AUT000018",
                            message: "Error getting App Check token; using placeholder " +
